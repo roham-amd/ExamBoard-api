@@ -1,0 +1,7 @@
+{% load i18n %}
+<p class="date jalali-hint">
+  {% include "django/forms/widgets/date.html" %}
+  {% if jalali_display %}
+    <br><small class="jalali-hint__value">معادل جلالی: {{ jalali_display }}</small>
+  {% endif %}
+</p>

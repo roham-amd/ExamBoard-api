@@ -1,0 +1,1 @@
+"""ExamBoard Django applications."""
