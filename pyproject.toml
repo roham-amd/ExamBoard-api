@@ -1,0 +1,62 @@
+[project]
+name = "exam-board-api"
+version = "0.1.0"
+description = "ExamBoard service backend"
+readme = "README.md"
+requires-python = ">=3.13"
+keywords = ["django", "rest"]
+dependencies = [
+    "django==5.0.6",
+    "django-environ==0.11.2",
+    "django-filter==24.3",
+    "djangorestframework==3.15.2",
+    "djangorestframework-simplejwt==5.3.1",
+    "drf-spectacular==0.27.2",
+    "jdatetime==4.1.1",
+    "gunicorn==22.0.0",
+    "psycopg==3.2.1",
+]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+required-version = "24.8.0"
+target-version = ["py313"]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["config", "apps"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["tests.py", "test_*.py"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "DJ"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["config", "apps"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[dependency-groups]
+dev = [
+    "black==24.8.0",
+    "isort==5.13.2",
+    "pre-commit==4.0.1",
+    "pytest==8.3.3",
+    "pytest-cov==5.0.0",
+    "pytest-django==4.9.0",
+    "ruff==0.6.8",
+]
+
