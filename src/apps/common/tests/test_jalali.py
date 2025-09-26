@@ -17,6 +17,7 @@ from apps.common import jalali
 )
 def test_format_and_parse_round_trip(iso_value: datetime) -> None:
     jalali_string = jalali.format_jalali(iso_value)
+    assert jalali_string is not None
     parsed = jalali.parse_jalali(jalali_string)
     assert parsed.astimezone(ZoneInfo("UTC")) == iso_value
 

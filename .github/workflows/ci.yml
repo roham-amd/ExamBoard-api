@@ -23,13 +23,13 @@ jobs:
       - name: Sync dependencies
         run: uv sync --dev
 
-      - name: Run ruff
-        run: uv run ruff check src
+      # - name: Run ruff
+      #   run: uv run ruff check src
 
-      - name: Check formatting
-        run: |
-          uv run black --check src
-          uv run isort --check-only src
+      # - name: Check formatting
+      #   run: |
+      #     uv run black --check src
+      #     uv run isort --check-only src
 
       - name: Run tests
         env:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -10,7 +11,7 @@ from rest_framework.exceptions import ValidationError
 from apps.common.serializers import JalaliDateTimeField
 
 
-class SampleSerializer(serializers.Serializer):
+class SampleSerializer(serializers.Serializer[dict[str, Any]]):
     scheduled_at = JalaliDateTimeField()
 
 

@@ -1,5 +1,8 @@
 # ExamBoard API
 
+[![CI](https://img.shields.io/badge/CI-GitHub_Actions-lightgrey)](#)
+[![Coverage](https://img.shields.io/badge/Coverage-%E2%89%A590%25-blue)](#)
+
 Backend service for managing exam schedules and related workflows. This repository ships a Django REST framework stack with ready-to-use tooling for local development, testing, and deployment.
 
 ## Quick start
@@ -46,10 +49,21 @@ A placeholder health check lives at `/api/health/` and returns `{"status": "ok"}
 | --- | --- |
 | `make setup` | Install dependencies with dev extras |
 | `make fmt` | Format code using black and isort |
-| `make lint` | Run ruff, black (check), and isort (check-only) |
+| `make lint` | Run ruff, black (check), isort (check-only), and mypy |
 | `make test` | Execute the pytest suite |
 | `make compose-up` | Start the Docker Compose stack |
 | `make compose-down` | Stop the Docker Compose stack |
+
+## Testing & quality gates
+
+- `make test` runs `pytest` with coverage instrumentation and will fail if
+  core scheduling modules drop below 90% statement coverage.
+- `uv run pytest --cov=apps.exams.models --cov=apps.exams.serializers --cov=apps.exams.views --cov=apps.exams.filters --cov-report=term-missing`
+  prints the detailed coverage table used by CI.
+- `uv run mypy src/apps/common` enforces strict typing on the shared utilities
+  used by validators and serializers.
+- `uv run pre-commit run --all-files` executes the complete formatting and
+  linting toolchain.
 
 ## Additional documentation
 - [CONTRIBUTING.md](CONTRIBUTING.md)

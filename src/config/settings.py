@@ -124,6 +124,7 @@ DATETIME_FORMAT = "Y-m-d H:i"
 SHORT_DATE_FORMAT = "Y/n/j"
 SHORT_DATETIME_FORMAT = "Y/n/j H:i"
 
+
 # Static files
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

@@ -15,6 +15,7 @@ lint:
 	$(UV) run ruff check src
 	$(UV) run black --check src
 	$(UV) run isort --check-only src
+	$(UV) run mypy src/apps/common
 
 test:
 	$(UV) run pytest -q

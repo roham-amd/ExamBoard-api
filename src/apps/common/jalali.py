@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import jdatetime
@@ -42,7 +43,7 @@ def format_jalali(dt: datetime | None, fmt: str = JALALI_DATETIME_FORMAT) -> str
         return None
 
     jalali_dt = to_jalali_datetime(dt)
-    return jalali_dt.strftime(fmt)
+    return cast(str, jalali_dt.strftime(fmt))
 
 
 def format_jalali_date(value: date | None, fmt: str = JALALI_DATE_FORMAT) -> str | None:
@@ -52,7 +53,7 @@ def format_jalali_date(value: date | None, fmt: str = JALALI_DATE_FORMAT) -> str
         return None
 
     jalali_date = jdatetime.date.fromgregorian(date=value)
-    return jalali_date.strftime(fmt)
+    return cast(str, jalali_date.strftime(fmt))
 
 
 def parse_jalali(

@@ -51,11 +51,13 @@ class JalaliDateField(serializers.DateField):
         if isinstance(value, date) and not isinstance(value, datetime):
             date_value = value
         else:
-            parsed = super().to_representation(value)  # type: ignore[assignment]
+            parsed = super().to_representation(value)
             if isinstance(parsed, str):
                 date_value = super().to_internal_value(parsed)
-            else:
+            elif isinstance(parsed, date):
                 date_value = parsed
+            else:
+                raise TypeError("Expected a string or date representation")
 
         local_dt = datetime.combine(date_value, time.min)
         aware_local = jalali.ensure_aware(local_dt)

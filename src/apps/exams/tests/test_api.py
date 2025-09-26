@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -11,7 +12,9 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from apps.exams.filters import BlackoutFilter, ExamAllocationFilter, HolidayFilter
 from apps.exams.models import BlackoutWindow, Exam, ExamAllocation, Holiday, Room, Term
+from apps.exams.views import _format_scope_label
 
 
 @pytest.fixture
@@ -299,6 +302,39 @@ class TestExamAPI:
         created = Exam.objects.get(pk=response.json()["id"])
         assert created.owner == instructor_user
 
+    def test_scheduler_can_assign_owner_on_create(
+        self, scheduler_client, term, scheduler_user, instructor_user
+    ):
+        payload = {
+            "title": "Programming",
+            "course_code": "CS101",
+            "owner": instructor_user.pk,
+            "expected_students": 60,
+            "duration_minutes": 75,
+            "term": term.pk,
+        }
+
+        response = scheduler_client.post("/api/exams/", payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        created = Exam.objects.get(pk=response.json()["id"])
+        assert created.owner == instructor_user
+
+    def test_admin_can_update_any_exam(self, admin_client, exam):
+        response = admin_client.patch(
+            f"/api/exams/{exam.pk}/", {"title": "Updated Title"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        exam.refresh_from_db()
+        assert exam.title == "Updated Title"
+
+    def test_admin_can_delete_any_exam(self, admin_client, exam):
+        response = admin_client.delete(f"/api/exams/{exam.pk}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Exam.objects.filter(pk=exam.pk).exists()
+
 
 @pytest.mark.django_db
 class TestPublicTimetable:
@@ -356,3 +392,126 @@ class TestPublicTimetable:
         response = client.get(f"/api/public/terms/{term.pk}/timetable/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_invalid_scope_returns_error(self, term):
+        client = APIClient()
+        response = client.get(f"/api/public/terms/{term.pk}/timetable/?scope=year")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "scope" in response.json()
+
+    def test_month_scope_generates_label(self, term, room, exam):
+        start = timezone.make_aware(dt.datetime(2024, 4, 10, 8, 0))
+        ExamAllocation.objects.create(
+            exam=exam,
+            room=room,
+            start_at=start,
+            end_at=start + dt.timedelta(hours=2),
+            allocated_seats=25,
+        )
+
+        client = APIClient()
+        response = client.get(
+            f"/api/public/terms/{term.pk}/timetable/?scope=month&date=2024-04-15"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["requested_range"]["scope"] == "month"
+        assert payload["requested_range"]["label"]
+
+
+@pytest.mark.django_db
+class TestBlackoutAPI:
+    endpoint = "/api/blackouts/"
+
+    def test_created_by_tracks_scheduler(self, scheduler_client, scheduler_user, room):
+        start = timezone.make_aware(dt.datetime(2024, 4, 5, 9, 0))
+        payload = {
+            "name": "Maintenance",
+            "start_at": start.isoformat(),
+            "end_at": (start + dt.timedelta(hours=2)).isoformat(),
+            "room": room.pk,
+        }
+
+        response = scheduler_client.post(self.endpoint, payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        blackout = BlackoutWindow.objects.get(pk=response.json()["id"])
+        assert blackout.created_by == scheduler_user
+
+
+@pytest.mark.django_db
+class TestFilterHelpers:
+    def test_allocation_filter_in_range_handles_missing_bounds(self, term, exam, room):
+        filterset = ExamAllocationFilter(data={}, queryset=ExamAllocation.objects.all())
+        qs = ExamAllocation.objects.all()
+        empty_value = SimpleNamespace(start=None, stop=None)
+
+        assert filterset.filter_in_range(qs, "in_range", empty_value) is qs
+
+        start = timezone.make_aware(dt.datetime(2024, 4, 12, 8, 0))
+        allocation = ExamAllocation.objects.create(
+            exam=exam,
+            room=room,
+            start_at=start,
+            end_at=start + dt.timedelta(hours=2),
+            allocated_seats=20,
+        )
+        populated_value = SimpleNamespace(
+            start=start - dt.timedelta(minutes=30),
+            stop=start + dt.timedelta(hours=1),
+        )
+
+        filtered = filterset.filter_in_range(qs, "in_range", populated_value)
+        assert list(filtered) == [allocation]
+
+    def test_blackout_filter_overlaps_handles_missing_bounds(self, room):
+        filterset = BlackoutFilter(data={}, queryset=BlackoutWindow.objects.all())
+        qs = BlackoutWindow.objects.all()
+        empty_value = SimpleNamespace(start=None, stop=None)
+
+        assert filterset.filter_overlaps(qs, "overlaps", empty_value) is qs
+
+        start = timezone.make_aware(dt.datetime(2024, 4, 13, 10, 0))
+        window = BlackoutWindow.objects.create(
+            name="Cleaning",
+            start_at=start,
+            end_at=start + dt.timedelta(hours=1),
+            room=room,
+        )
+        populated_value = SimpleNamespace(
+            start=start - dt.timedelta(minutes=15),
+            stop=start + dt.timedelta(minutes=15),
+        )
+
+        filtered = filterset.filter_overlaps(qs, "overlaps", populated_value)
+        assert list(filtered) == [window]
+
+    def test_holiday_filter_overlaps_handles_missing_bounds(self):
+        filterset = HolidayFilter(data={}, queryset=Holiday.objects.all())
+        qs = Holiday.objects.all()
+        empty_value = SimpleNamespace(start=None, stop=None)
+
+        assert filterset.filter_overlaps(qs, "overlaps", empty_value) is qs
+
+        holiday = Holiday.objects.create(
+            name="Festival",
+            start_date=dt.date(2024, 4, 1),
+            end_date=dt.date(2024, 4, 3),
+        )
+        populated_value = SimpleNamespace(
+            start=dt.date(2024, 4, 2),
+            stop=dt.date(2024, 4, 4),
+        )
+
+        filtered = filterset.filter_overlaps(qs, "overlaps", populated_value)
+        assert list(filtered) == [holiday]
+
+    def test_format_scope_label_month_returns_text(self):
+        start = timezone.make_aware(dt.datetime(2024, 4, 1, 0, 0))
+        end = start + dt.timedelta(days=30)
+
+        label = _format_scope_label("month", start, end)
+
+        assert label
