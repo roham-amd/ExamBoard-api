@@ -62,3 +62,41 @@ lost updates when bookings compete for the same seats.
 - A third overlapping allocation that would overflow capacity fails.
 - Blackout windows, holidays, and term boundaries each block conflicting
   requests with Farsi error messages.
+
+## API Examples
+
+Successful overlap booking (`201 Created`):
+
+```http
+POST /api/allocations/
+Content-Type: application/json
+
+{
+  "exam": 1,
+  "room": 3,
+  "start_at": "2025-07-01T08:00:00Z",
+  "end_at": "2025-07-01T09:00:00Z",
+  "allocated_seats": 50
+}
+```
+
+Capacity breach (`400 Bad Request`):
+
+```http
+POST /api/allocations/
+Content-Type: application/json
+
+{
+  "exam": 1,
+  "room": 3,
+  "start_at": "2025-07-01T08:30:00Z",
+  "end_at": "2025-07-01T09:30:00Z",
+  "allocated_seats": 10
+}
+
+Response:
+{
+  "allocated_seats": ["ظرفیت اتاق در این بازه زمانی تکمیل است."]
+}
+```
+

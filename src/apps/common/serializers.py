@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any
 
 from rest_framework import serializers
@@ -32,4 +32,36 @@ class JalaliDateTimeField(serializers.DateTimeField):
         return {
             "iso": iso_value,
             "jalali": jalali.format_jalali(datetime_value),
+        }
+
+
+class JalaliDateField(serializers.DateField):
+    """Serialize dates alongside their Jalali representation."""
+
+    default_error_messages = {
+        "invalid": "ساختار تاریخ معتبر نیست.",
+        "null": "ارزش این فیلد نمی‌تواند خالی باشد.",
+    }
+
+    def to_representation(self, value: Any) -> Any:  # noqa: ANN401
+        if value is None:
+            return None
+
+        date_value: date
+        if isinstance(value, date) and not isinstance(value, datetime):
+            date_value = value
+        else:
+            parsed = super().to_representation(value)  # type: ignore[assignment]
+            if isinstance(parsed, str):
+                date_value = super().to_internal_value(parsed)
+            else:
+                date_value = parsed
+
+        local_dt = datetime.combine(date_value, time.min)
+        aware_local = jalali.ensure_aware(local_dt)
+        jalali_value = jalali.format_jalali(aware_local)
+
+        return {
+            "iso": date_value.isoformat(),
+            "jalali": jalali_value,
         }
