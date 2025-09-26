@@ -1,0 +1,622 @@
+"""Integration tests for the scheduling REST API."""
+
+from __future__ import annotations
+
+import datetime as dt
+from types import SimpleNamespace
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from apps.exams.filters import BlackoutFilter, ExamAllocationFilter, HolidayFilter
+from apps.exams.models import BlackoutWindow, Exam, ExamAllocation, Holiday, Room, Term
+from apps.exams.views import _format_scope_label
+
+
+@pytest.fixture
+def api_client() -> APIClient:
+    return APIClient()
+
+
+@pytest.fixture(autouse=True)
+def ensure_groups(db):  # noqa: ANN001 - pytest signature
+    for name in ("Admin", "Scheduler", "Instructor", "Student"):
+        Group.objects.get_or_create(name=name)
+
+
+@pytest.fixture
+def scheduler_user():  # noqa: ANN001 - pytest naming convention
+    User = get_user_model()
+    user = User.objects.create_user("scheduler", password="test-pass")
+    user.groups.add(Group.objects.get(name="Scheduler"))
+    return user
+
+
+@pytest.fixture
+def admin_user():  # noqa: ANN001
+    User = get_user_model()
+    user = User.objects.create_user("admin", password="test-pass")
+    user.groups.add(Group.objects.get(name="Admin"))
+    return user
+
+
+@pytest.fixture
+def instructor_user():  # noqa: ANN001
+    User = get_user_model()
+    user = User.objects.create_user("instructor", password="test-pass")
+    user.groups.add(Group.objects.get(name="Instructor"))
+    return user
+
+
+@pytest.fixture
+def term():
+    return Term.objects.create(
+        name="Spring 1403",
+        code="1403-SPR",
+        start_date=dt.date(2024, 3, 20),
+        end_date=dt.date(2024, 6, 20),
+        is_published=True,
+    )
+
+
+@pytest.fixture
+def room():
+    return Room.objects.create(name="Auditorium", capacity=100)
+
+
+@pytest.fixture
+def exam(term, instructor_user):
+    return Exam.objects.create(
+        title="Linear Algebra",
+        course_code="MATH201",
+        owner=instructor_user,
+        expected_students=80,
+        term=term,
+    )
+
+
+@pytest.fixture
+def scheduler_client(api_client, scheduler_user):
+    api_client.force_authenticate(user=scheduler_user)
+    return api_client
+
+
+@pytest.fixture
+def admin_client(api_client, admin_user):
+    api_client.force_authenticate(user=admin_user)
+    return api_client
+
+
+@pytest.fixture
+def instructor_client(api_client, instructor_user):
+    api_client.force_authenticate(user=instructor_user)
+    return api_client
+
+
+@pytest.mark.django_db
+class TestExamAllocationAPI:
+    endpoint = "/api/allocations/"
+
+    def _payload(self, exam, room, start, end, seats):
+        return {
+            "exam": exam.pk,
+            "room": room.pk,
+            "start_at": start.isoformat(),
+            "end_at": end.isoformat(),
+            "allocated_seats": seats,
+        }
+
+    def test_capacity_ledger_accepts_balanced_overlap(
+        self, scheduler_client, exam, room
+    ):
+        first = self._payload(
+            exam,
+            room,
+            dt.datetime(2024, 4, 10, 8, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 4, 10, 10, 0, tzinfo=dt.UTC),
+            50,
+        )
+        second = self._payload(
+            exam,
+            room,
+            dt.datetime(2024, 4, 10, 9, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 4, 10, 11, 0, tzinfo=dt.UTC),
+            50,
+        )
+
+        response_one = scheduler_client.post(self.endpoint, first, format="json")
+        response_two = scheduler_client.post(self.endpoint, second, format="json")
+
+        assert response_one.status_code == status.HTTP_201_CREATED
+        assert response_two.status_code == status.HTTP_201_CREATED
+
+    def test_capacity_ledger_rejects_overflow(self, scheduler_client, exam, room):
+        base_payload = {
+            "exam": exam.pk,
+            "room": room.pk,
+            "start_at": dt.datetime(2024, 4, 11, 8, 0, tzinfo=dt.UTC).isoformat(),
+            "end_at": dt.datetime(2024, 4, 11, 10, 0, tzinfo=dt.UTC).isoformat(),
+        }
+
+        ok_one = {**base_payload, "allocated_seats": 50}
+        ok_two = {**base_payload, "allocated_seats": 40}
+        fail_payload = {**base_payload, "allocated_seats": 20}
+
+        scheduler_client.post(self.endpoint, ok_one, format="json")
+        scheduler_client.post(self.endpoint, ok_two, format="json")
+        response = scheduler_client.post(self.endpoint, fail_payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "allocated_seats" in response.json()
+
+    def test_blackout_blocks_allocation(self, scheduler_client, exam, room):
+        BlackoutWindow.objects.create(
+            name="Maintenance",
+            start_at=dt.datetime(2024, 4, 15, 8, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2024, 4, 15, 12, 0, tzinfo=dt.UTC),
+            room=room,
+        )
+
+        payload = self._payload(
+            exam,
+            room,
+            dt.datetime(2024, 4, 15, 9, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 4, 15, 10, 0, tzinfo=dt.UTC),
+            10,
+        )
+
+        response = scheduler_client.post(self.endpoint, payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "start_at" in response.json()
+
+    def test_allocation_must_reside_within_term(self, scheduler_client, exam, room):
+        payload = self._payload(
+            exam,
+            room,
+            dt.datetime(2024, 7, 1, 8, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 7, 1, 10, 0, tzinfo=dt.UTC),
+            10,
+        )
+
+        response = scheduler_client.post(self.endpoint, payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "start_at" in response.json()
+
+    def test_holiday_blocks_allocation(self, scheduler_client, exam, room):
+        Holiday.objects.create(
+            name="Nowruz",
+            start_date=dt.date(2024, 3, 20),
+            end_date=dt.date(2024, 3, 23),
+        )
+
+        payload = self._payload(
+            exam,
+            room,
+            dt.datetime(2024, 3, 21, 8, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 3, 21, 10, 0, tzinfo=dt.UTC),
+            10,
+        )
+
+        response = scheduler_client.post(self.endpoint, payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "start_at" in response.json()
+
+    def test_unauthenticated_write_is_blocked(self, api_client, exam, room):
+        payload = self._payload(
+            exam,
+            room,
+            dt.datetime(2024, 4, 20, 8, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 4, 20, 9, 0, tzinfo=dt.UTC),
+            5,
+        )
+
+        response = api_client.post(self.endpoint, payload, format="json")
+
+        assert response.status_code in {
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        }
+
+
+@pytest.mark.django_db
+class TestTermAPI:
+    def test_admin_can_publish_term(self, admin_client, term):
+        response = admin_client.post(f"/api/terms/{term.pk}/publish/")
+        term.refresh_from_db()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert term.is_published is True
+
+    def test_non_admin_cannot_publish_term(self, scheduler_client, term):
+        response = scheduler_client.post(f"/api/terms/{term.pk}/publish/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_published_term_locks_schema_fields(self, admin_client, term):
+        admin_client.post(f"/api/terms/{term.pk}/publish/")
+
+        rename_response = admin_client.patch(
+            f"/api/terms/{term.pk}/", {"name": "Updated"}, format="json"
+        )
+        assert rename_response.status_code == status.HTTP_200_OK
+
+        new_start = (term.start_date + dt.timedelta(days=1)).isoformat()
+        response = admin_client.patch(
+            f"/api/terms/{term.pk}/",
+            {"start_date": new_start},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "start_date" in response.json()
+
+
+@pytest.mark.django_db
+class TestRoomCapacityHeatmapAPI:
+    endpoint = "/api/rooms/capacity-heatmap/"
+
+    def test_heatmap_returns_daily_peak_load(
+        self,
+        scheduler_client,
+        term,
+        room,
+        exam,
+        instructor_user,
+    ):
+        other_room = Room.objects.create(name="Lab", capacity=50)
+        other_exam = Exam.objects.create(
+            title="Physics",
+            course_code="PHY101",
+            owner=instructor_user,
+            expected_students=30,
+            term=term,
+        )
+
+        ExamAllocation.objects.create(
+            exam=exam,
+            room=room,
+            start_at=dt.datetime(2024, 4, 10, 8, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2024, 4, 10, 10, 0, tzinfo=dt.UTC),
+            allocated_seats=60,
+        )
+        ExamAllocation.objects.create(
+            exam=exam,
+            room=room,
+            start_at=dt.datetime(2024, 4, 10, 9, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2024, 4, 10, 11, 0, tzinfo=dt.UTC),
+            allocated_seats=30,
+        )
+        ExamAllocation.objects.create(
+            exam=other_exam,
+            room=other_room,
+            start_at=dt.datetime(2024, 4, 11, 8, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2024, 4, 11, 9, 0, tzinfo=dt.UTC),
+            allocated_seats=25,
+        )
+
+        response = scheduler_client.get(
+            self.endpoint,
+            {
+                "term": term.pk,
+                "start_date": "2024-04-10",
+                "end_date": "2024-04-11",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        payload = response.json()
+        assert payload["start_date"]["iso"] == "2024-04-10"
+        assert payload["end_date"]["iso"] == "2024-04-11"
+
+        auditorium_entry = next(
+            item for item in payload["rooms"] if item["id"] == room.pk
+        )
+        day = next(
+            entry
+            for entry in auditorium_entry["days"]
+            if entry["date"]["iso"] == "2024-04-10"
+        )
+
+        assert day["peak_allocated_seats"] == 90
+        assert day["total_allocated_seats"] == 90
+        assert day["allocation_count"] == 2
+        assert day["utilisation"] == pytest.approx(0.9)
+
+        lab_entry = next(
+            item for item in payload["rooms"] if item["id"] == other_room.pk
+        )
+        lab_day = next(
+            entry for entry in lab_entry["days"] if entry["date"]["iso"] == "2024-04-11"
+        )
+        assert lab_day["peak_allocated_seats"] == 25
+        assert lab_day["utilisation"] == pytest.approx(0.5)
+
+    def test_heatmap_supports_room_filter(self, scheduler_client, term, room):
+        response = scheduler_client.get(
+            self.endpoint,
+            {"term": term.pk, "room": room.pk},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [entry["id"] for entry in response.json()["rooms"]] == [room.pk]
+
+    def test_heatmap_rejects_invalid_range(self, scheduler_client, term):
+        response = scheduler_client.get(
+            self.endpoint,
+            {
+                "term": term.pk,
+                "start_date": "2025-01-01",
+                "end_date": "2025-01-05",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "start_date" in response.json()
+
+
+@pytest.mark.django_db
+class TestExamAPI:
+    def test_instructor_cannot_update_other_exam(
+        self, instructor_client, term, instructor_user
+    ):
+        other_user = get_user_model().objects.create_user("other", password="pass1234")
+        exam = Exam.objects.create(
+            title="Physics",
+            course_code="PHY101",
+            owner=other_user,
+            expected_students=30,
+            term=term,
+        )
+
+        payload = {
+            "title": "Physics Updated",
+            "course_code": "PHY101",
+            "owner": other_user.pk,
+            "expected_students": 30,
+            "duration_minutes": 60,
+            "term": term.pk,
+        }
+
+        response = instructor_client.put(
+            f"/api/exams/{exam.pk}/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_instructor_owns_created_exam(
+        self, instructor_client, term, instructor_user
+    ):
+        payload = {
+            "title": "Chemistry",
+            "course_code": "CHEM200",
+            "expected_students": 45,
+            "duration_minutes": 90,
+            "term": term.pk,
+        }
+
+        response = instructor_client.post("/api/exams/", payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        created = Exam.objects.get(pk=response.json()["id"])
+        assert created.owner == instructor_user
+
+    def test_scheduler_can_assign_owner_on_create(
+        self, scheduler_client, term, scheduler_user, instructor_user
+    ):
+        payload = {
+            "title": "Programming",
+            "course_code": "CS101",
+            "owner": instructor_user.pk,
+            "expected_students": 60,
+            "duration_minutes": 75,
+            "term": term.pk,
+        }
+
+        response = scheduler_client.post("/api/exams/", payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        created = Exam.objects.get(pk=response.json()["id"])
+        assert created.owner == instructor_user
+
+    def test_admin_can_update_any_exam(self, admin_client, exam):
+        response = admin_client.patch(
+            f"/api/exams/{exam.pk}/", {"title": "Updated Title"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        exam.refresh_from_db()
+        assert exam.title == "Updated Title"
+
+    def test_admin_can_delete_any_exam(self, admin_client, exam):
+        response = admin_client.delete(f"/api/exams/{exam.pk}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Exam.objects.filter(pk=exam.pk).exists()
+
+
+@pytest.mark.django_db
+class TestPublicTimetable:
+    def test_public_timetable_returns_allocations(self, term, room, exam):
+        start = timezone.make_aware(dt.datetime(2024, 4, 1, 8, 0))
+        ExamAllocation.objects.create(
+            exam=exam,
+            room=room,
+            start_at=start,
+            end_at=start + dt.timedelta(hours=2),
+            allocated_seats=30,
+        )
+
+        client = APIClient()
+        response = client.get(
+            f"/api/public/terms/{term.pk}/timetable/?scope=day&date=2024-04-01"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["term"]["id"] == term.pk
+        assert payload["requested_range"]["scope"] == "day"
+        assert payload["rooms"][0]["allocations"][0]["allocated_seats"] == 30
+
+    def test_public_timetable_paginates_rooms(self, term, exam):
+        term.publish()
+        rooms = [
+            Room.objects.create(name=f"Room {idx}", capacity=20) for idx in range(3)
+        ]
+        for room in rooms:
+            ExamAllocation.objects.create(
+                exam=exam,
+                room=room,
+                start_at=timezone.make_aware(dt.datetime(2024, 4, 1, 8, 0)),
+                end_at=timezone.make_aware(dt.datetime(2024, 4, 1, 9, 0)),
+                allocated_seats=10,
+            )
+
+        client = APIClient()
+        response = client.get(
+            f"/api/public/terms/{term.pk}/timetable/?page_size=1&date=2024-04-01"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["pagination"]["count"] == 3
+        assert len(payload["rooms"]) == 1
+        assert payload["pagination"]["next"] is not None
+
+    def test_unpublished_term_is_not_visible(self, term):
+        term.is_published = False
+        term.save(update_fields=["is_published"])
+
+        client = APIClient()
+        response = client.get(f"/api/public/terms/{term.pk}/timetable/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_invalid_scope_returns_error(self, term):
+        client = APIClient()
+        response = client.get(f"/api/public/terms/{term.pk}/timetable/?scope=year")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "scope" in response.json()
+
+    def test_month_scope_generates_label(self, term, room, exam):
+        start = timezone.make_aware(dt.datetime(2024, 4, 10, 8, 0))
+        ExamAllocation.objects.create(
+            exam=exam,
+            room=room,
+            start_at=start,
+            end_at=start + dt.timedelta(hours=2),
+            allocated_seats=25,
+        )
+
+        client = APIClient()
+        response = client.get(
+            f"/api/public/terms/{term.pk}/timetable/?scope=month&date=2024-04-15"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["requested_range"]["scope"] == "month"
+        assert payload["requested_range"]["label"]
+
+
+@pytest.mark.django_db
+class TestBlackoutAPI:
+    endpoint = "/api/blackouts/"
+
+    def test_created_by_tracks_scheduler(self, scheduler_client, scheduler_user, room):
+        start = timezone.make_aware(dt.datetime(2024, 4, 5, 9, 0))
+        payload = {
+            "name": "Maintenance",
+            "start_at": start.isoformat(),
+            "end_at": (start + dt.timedelta(hours=2)).isoformat(),
+            "room": room.pk,
+        }
+
+        response = scheduler_client.post(self.endpoint, payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        blackout = BlackoutWindow.objects.get(pk=response.json()["id"])
+        assert blackout.created_by == scheduler_user
+
+
+@pytest.mark.django_db
+class TestFilterHelpers:
+    def test_allocation_filter_in_range_handles_missing_bounds(self, term, exam, room):
+        filterset = ExamAllocationFilter(data={}, queryset=ExamAllocation.objects.all())
+        qs = ExamAllocation.objects.all()
+        empty_value = SimpleNamespace(start=None, stop=None)
+
+        assert filterset.filter_in_range(qs, "in_range", empty_value) is qs
+
+        start = timezone.make_aware(dt.datetime(2024, 4, 12, 8, 0))
+        allocation = ExamAllocation.objects.create(
+            exam=exam,
+            room=room,
+            start_at=start,
+            end_at=start + dt.timedelta(hours=2),
+            allocated_seats=20,
+        )
+        populated_value = SimpleNamespace(
+            start=start - dt.timedelta(minutes=30),
+            stop=start + dt.timedelta(hours=1),
+        )
+
+        filtered = filterset.filter_in_range(qs, "in_range", populated_value)
+        assert list(filtered) == [allocation]
+
+    def test_blackout_filter_overlaps_handles_missing_bounds(self, room):
+        filterset = BlackoutFilter(data={}, queryset=BlackoutWindow.objects.all())
+        qs = BlackoutWindow.objects.all()
+        empty_value = SimpleNamespace(start=None, stop=None)
+
+        assert filterset.filter_overlaps(qs, "overlaps", empty_value) is qs
+
+        start = timezone.make_aware(dt.datetime(2024, 4, 13, 10, 0))
+        window = BlackoutWindow.objects.create(
+            name="Cleaning",
+            start_at=start,
+            end_at=start + dt.timedelta(hours=1),
+            room=room,
+        )
+        populated_value = SimpleNamespace(
+            start=start - dt.timedelta(minutes=15),
+            stop=start + dt.timedelta(minutes=15),
+        )
+
+        filtered = filterset.filter_overlaps(qs, "overlaps", populated_value)
+        assert list(filtered) == [window]
+
+    def test_holiday_filter_overlaps_handles_missing_bounds(self):
+        filterset = HolidayFilter(data={}, queryset=Holiday.objects.all())
+        qs = Holiday.objects.all()
+        empty_value = SimpleNamespace(start=None, stop=None)
+
+        assert filterset.filter_overlaps(qs, "overlaps", empty_value) is qs
+
+        holiday = Holiday.objects.create(
+            name="Festival",
+            start_date=dt.date(2024, 4, 1),
+            end_date=dt.date(2024, 4, 3),
+        )
+        populated_value = SimpleNamespace(
+            start=dt.date(2024, 4, 2),
+            stop=dt.date(2024, 4, 4),
+        )
+
+        filtered = filterset.filter_overlaps(qs, "overlaps", populated_value)
+        assert list(filtered) == [holiday]
+
+    def test_format_scope_label_month_returns_text(self):
+        start = timezone.make_aware(dt.datetime(2024, 4, 1, 0, 0))
+        end = start + dt.timedelta(days=30)
+
+        label = _format_scope_label("month", start, end)
+
+        assert label
