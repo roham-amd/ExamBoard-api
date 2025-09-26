@@ -1,0 +1,1 @@
+"""Exam scheduling domain app."""
