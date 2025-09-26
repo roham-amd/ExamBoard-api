@@ -48,3 +48,4 @@ erDiagram
     ROOM ||--o{ BLACKOUT_WINDOW : "may close"
     USER ||--o{ BLACKOUT_WINDOW : "creates/updates"
 ```
+
