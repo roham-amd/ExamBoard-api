@@ -1,0 +1,8 @@
+{% load i18n %}
+<p class="datetime jalali-hint">
+  {{ date_label }} {% with widget=widget.subwidgets.0 %}{% include widget.template_name %}{% endwith %}<br>
+  {{ time_label }} {% with widget=widget.subwidgets.1 %}{% include widget.template_name %}{% endwith %}
+  {% if jalali_display %}
+    <br><small class="jalali-hint__value">معادل جلالی: {{ jalali_display }}</small>
+  {% endif %}
+</p>
