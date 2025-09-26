@@ -18,6 +18,8 @@ from apps.common.models import TimeStampedModel, UserAuditModel
 class Term(TimeStampedModel):
     """Academic term definition."""
 
+    LOCKED_FIELDS: tuple[str, ...] = ("code", "start_date", "end_date")
+
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=32, unique=True)
     start_date = models.DateField()
@@ -36,6 +38,41 @@ class Term(TimeStampedModel):
 
     def __str__(self) -> str:  # pragma: no cover - simple display helper
         return f"{self.name} ({self.code})"
+
+    def clean(self) -> None:
+        super().clean()
+
+        if not self.pk:
+            return
+
+        try:
+            original = Term.objects.get(pk=self.pk)
+        except Term.DoesNotExist:  # pragma: no cover - safety guard
+            return
+
+        if not original.is_published:
+            return
+
+        locked_errors = {}
+        for field_name in self.LOCKED_FIELDS:
+            if getattr(self, field_name) != getattr(original, field_name):
+                locked_errors[field_name] = "این فیلد پس از انتشار قابل تغییر نیست."
+
+        if locked_errors:
+            raise ValidationError(locked_errors)
+
+    def publish(self, *, commit: bool = True) -> Term:
+        """Mark the term as published and lock schema-critical fields."""
+
+        if self.is_published:
+            return self
+
+        self.is_published = True
+
+        if commit:
+            self.save(update_fields=["is_published", "updated_at"])
+
+        return self
 
 
 class Room(TimeStampedModel):

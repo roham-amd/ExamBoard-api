@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common import jalali
+from apps.common.pagination import StandardResultsSetPagination
 from apps.common.permissions import (
     AdminOnly,
     AdminSchedulerInstructorWrite,
@@ -21,6 +22,7 @@ from apps.common.permissions import (
     ReadOnlyForAnonymous,
     user_in_groups,
 )
+from apps.common.serializers import JalaliDateTimeField
 
 from .filters import (
     BlackoutFilter,
@@ -55,8 +57,7 @@ class TermViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], permission_classes=[AdminOnly])
     def publish(self, request, pk=None):  # noqa: ANN001
         term = self.get_object()
-        term.is_published = True
-        term.save(update_fields=["is_published"])
+        term.publish()
         serializer = self.get_serializer(term)
         return Response(serializer.data)
 
@@ -175,6 +176,7 @@ class PublicTimetableView(APIView):
     """Read-only timetable aggregated per room."""
 
     permission_classes = [AllowAny]
+    pagination_class = StandardResultsSetPagination
 
     @extend_schema(responses=TimetableResponseSerializer)
     def get(self, request, term_id):  # noqa: ANN001
@@ -258,16 +260,32 @@ class PublicTimetableView(APIView):
                 }
             )
 
-        response = {
-            "term": term.id,
-            "label": jalali_label,
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(rooms_payload, request, view=self)
+        paginated_rooms = page if page is not None else rooms_payload
+
+        jalali_field = JalaliDateTimeField()
+        requested_range = {
             "scope": scope,
-            "rooms": rooms_payload,
+            "label": jalali_label,
+            "start": jalali_field.to_representation(start),
+            "end": jalali_field.to_representation(end),
         }
 
-        serializer = TimetableResponseSerializer(data=response)
-        serializer.is_valid(raise_exception=True)
-        return Response(serializer.data)
+        response = {
+            "term": TermSerializer(term).data,
+            "requested_range": requested_range,
+            "rooms": paginated_rooms,
+        }
+
+        if page is not None:
+            response["pagination"] = {
+                "count": paginator.page.paginator.count,
+                "next": paginator.get_next_link(),
+                "previous": paginator.get_previous_link(),
+            }
+
+        return Response(response)
 
 
 def _format_scope_label(scope: str, start: dt.datetime, end: dt.datetime) -> str:

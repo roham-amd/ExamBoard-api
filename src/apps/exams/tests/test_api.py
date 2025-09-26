@@ -235,6 +235,24 @@ class TestTermAPI:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_published_term_locks_schema_fields(self, admin_client, term):
+        admin_client.post(f"/api/terms/{term.pk}/publish/")
+
+        rename_response = admin_client.patch(
+            f"/api/terms/{term.pk}/", {"name": "Updated"}, format="json"
+        )
+        assert rename_response.status_code == status.HTTP_200_OK
+
+        new_start = (term.start_date + dt.timedelta(days=1)).isoformat()
+        response = admin_client.patch(
+            f"/api/terms/{term.pk}/",
+            {"start_date": new_start},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "start_date" in response.json()
+
 
 @pytest.mark.django_db
 class TestExamAPI:
@@ -301,5 +319,40 @@ class TestPublicTimetable:
 
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()
-        assert payload["term"] == term.pk
+        assert payload["term"]["id"] == term.pk
+        assert payload["requested_range"]["scope"] == "day"
         assert payload["rooms"][0]["allocations"][0]["allocated_seats"] == 30
+
+    def test_public_timetable_paginates_rooms(self, term, exam):
+        term.publish()
+        rooms = [
+            Room.objects.create(name=f"Room {idx}", capacity=20) for idx in range(3)
+        ]
+        for room in rooms:
+            ExamAllocation.objects.create(
+                exam=exam,
+                room=room,
+                start_at=timezone.make_aware(dt.datetime(2024, 4, 1, 8, 0)),
+                end_at=timezone.make_aware(dt.datetime(2024, 4, 1, 9, 0)),
+                allocated_seats=10,
+            )
+
+        client = APIClient()
+        response = client.get(
+            f"/api/public/terms/{term.pk}/timetable/?page_size=1&date=2024-04-01"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["pagination"]["count"] == 3
+        assert len(payload["rooms"]) == 1
+        assert payload["pagination"]["next"] is not None
+
+    def test_unpublished_term_is_not_visible(self, term):
+        term.is_published = False
+        term.save(update_fields=["is_published"])
+
+        client = APIClient()
+        response = client.get(f"/api/public/terms/{term.pk}/timetable/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND

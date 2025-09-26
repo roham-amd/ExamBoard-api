@@ -29,6 +29,19 @@ class TermSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id"]
 
+    def validate(self, attrs):
+        instance = self.instance
+        if instance and instance.is_published:
+            locked_errors = {}
+            for field_name in Term.LOCKED_FIELDS:
+                if field_name in attrs and attrs[field_name] != getattr(
+                    instance, field_name
+                ):
+                    locked_errors[field_name] = "این فیلد پس از انتشار قابل تغییر نیست."
+            if locked_errors:
+                raise serializers.ValidationError(locked_errors)
+        return super().validate(attrs)
+
 
 class RoomSerializer(serializers.ModelSerializer):
     """Serialize room details."""
@@ -136,6 +149,18 @@ class TimetableAllocationSerializer(serializers.ModelSerializer):
         ]
 
 
+class TermMetadataSerializer(serializers.Serializer):
+    """Snapshot of term data shared with the public timetable."""
+
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    code = serializers.CharField()
+    start_date = JalaliDateField()
+    end_date = JalaliDateField()
+    is_published = serializers.BooleanField()
+    is_archived = serializers.BooleanField()
+
+
 class TimetableRoomSerializer(serializers.Serializer):
     """Aggregate allocations for a single room in the public timetable."""
 
@@ -145,10 +170,27 @@ class TimetableRoomSerializer(serializers.Serializer):
     allocations = TimetableAllocationSerializer(many=True)
 
 
+class TimetableRangeSerializer(serializers.Serializer):
+    """Describe the requested timetable window."""
+
+    scope = serializers.ChoiceField(choices=("day", "week", "month"))
+    label = serializers.CharField()
+    start = JalaliDateTimeField()
+    end = JalaliDateTimeField()
+
+
+class TimetablePaginationSerializer(serializers.Serializer):
+    """Optional pagination metadata for the timetable."""
+
+    count = serializers.IntegerField()
+    next = serializers.CharField(allow_blank=True, allow_null=True)
+    previous = serializers.CharField(allow_blank=True, allow_null=True)
+
+
 class TimetableResponseSerializer(serializers.Serializer):
     """Serializer used for documenting the public timetable response."""
 
-    term = serializers.IntegerField()
-    label = serializers.CharField()
-    scope = serializers.CharField()
+    term = TermMetadataSerializer()
+    requested_range = TimetableRangeSerializer()
     rooms = TimetableRoomSerializer(many=True)
+    pagination = TimetablePaginationSerializer(required=False)

@@ -93,3 +93,10 @@ class TestExamModels:
                     start_date=dt.date(2024, 4, 10),
                     end_date=dt.date(2024, 4, 9),
                 )
+
+    def test_term_publish_locks_critical_fields(self, term):
+        term.publish()
+        term.start_date = term.start_date + dt.timedelta(days=1)
+
+        with pytest.raises(ValidationError):
+            term.full_clean()
