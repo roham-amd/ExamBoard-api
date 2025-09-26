@@ -36,3 +36,16 @@
 - Dependency management with uv (Python 3.13 virtualenv in `.venv`).
 - Quality gates enforced by pre-commit (ruff, black, isort, mypy) and pytest.
 - Make targets wrap common workflows (`make fmt`, `make lint`, `make test`, etc.).
+
+## Domain relationships
+```mermaid
+erDiagram
+    USER ||--o{ EXAM : owns
+    TERM ||--o{ EXAM : includes
+    TERM ||--o{ HOLIDAY : "contains breaks"
+    EXAM ||--o{ EXAM_ALLOCATION : scheduled_in
+    ROOM ||--o{ EXAM_ALLOCATION : hosts
+    ROOM ||--o{ BLACKOUT_WINDOW : "may close"
+    USER ||--o{ BLACKOUT_WINDOW : "creates/updates"
+```
+

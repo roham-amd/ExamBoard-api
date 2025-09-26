@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "django_filters",
     # Local apps
     "apps.health",
+    "apps.exams",
 ]
 
 MIDDLEWARE = [
