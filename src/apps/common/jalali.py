@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import jdatetime
 from django.conf import settings
 from django.utils import timezone
 
+JALALI_DATE_FORMAT = "%Y-%m-%d"
 JALALI_DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 
 
@@ -42,6 +43,16 @@ def format_jalali(dt: datetime | None, fmt: str = JALALI_DATETIME_FORMAT) -> str
 
     jalali_dt = to_jalali_datetime(dt)
     return jalali_dt.strftime(fmt)
+
+
+def format_jalali_date(value: date | None, fmt: str = JALALI_DATE_FORMAT) -> str | None:
+    """Format the supplied date as a Jalali string."""
+
+    if value is None:
+        return None
+
+    jalali_date = jdatetime.date.fromgregorian(date=value)
+    return jalali_date.strftime(fmt)
 
 
 def parse_jalali(
