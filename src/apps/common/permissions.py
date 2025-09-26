@@ -9,6 +9,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
+
 ADMIN_GROUP = "Admin"
 SCHEDULER_GROUP = "Scheduler"
 INSTRUCTOR_GROUP = "Instructor"
