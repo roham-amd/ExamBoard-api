@@ -40,3 +40,4 @@ compose-up:
 
 compose-down:
 	docker compose --profile dev down
+

@@ -30,6 +30,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl libpq5 \
+
     && rm -rf /var/lib/apt/lists/* \
     && addgroup --system app \
     && adduser --system --ingroup app app
@@ -43,6 +44,7 @@ COPY docker/entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh
 
+
 ENV PATH="/opt/venv/bin:$PATH"
 
 USER app
@@ -50,4 +52,5 @@ USER app
 EXPOSE 8000
 
 ENTRYPOINT ["/entrypoint.sh"]
+
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--chdir", "src"]

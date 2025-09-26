@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from django.db.migrations.executor import MigrationExecutor
+
 from django.urls import reverse
 from rest_framework.test import APIClient
 

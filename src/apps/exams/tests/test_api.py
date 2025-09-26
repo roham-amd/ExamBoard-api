@@ -145,7 +145,6 @@ class TestExamAllocationAPI:
         ok_one = {**base_payload, "allocated_seats": 50}
         ok_two = {**base_payload, "allocated_seats": 40}
         fail_payload = {**base_payload, "allocated_seats": 20}
-
         scheduler_client.post(self.endpoint, ok_one, format="json")
         scheduler_client.post(self.endpoint, ok_two, format="json")
         response = scheduler_client.post(self.endpoint, fail_payload, format="json")
