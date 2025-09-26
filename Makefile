@@ -36,7 +36,8 @@ collectstatic:
 	$(DJANGO_MANAGE) collectstatic --noinput
 
 compose-up:
-	docker compose up -d
+	docker compose --profile dev up -d
 
 compose-down:
-	docker compose down
+	docker compose --profile dev down
+

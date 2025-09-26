@@ -2,21 +2,40 @@ version: "3.9"
 
 services:
   web:
+    profiles: ["dev"]
     build:
       context: .
     command: python src/manage.py runserver 0.0.0.0:8000
-    ports:
-      - "8000:8000"
+    env_file:
+      - src/.env.example
     environment:
       DJANGO_DEBUG: "True"
-      DJANGO_SECRET_KEY: "local-dev-secret"
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0"
-      DATABASE_URL: "postgres://examboard:examboard@db:5432/examboard"
+      DJANGO_ALLOWED_HOSTS: "examboard.local,localhost,127.0.0.1,0.0.0.0"
     volumes:
       - .:/app
+    ports:
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+
+  web-prod:
+    profiles: ["prod"]
+    build:
+      context: .
+    env_file:
+      - src/.env.example
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   db:
     image: postgres:16

@@ -22,14 +22,28 @@ uv run python src/manage.py runserver 0.0.0.0:8000
 
 ### 3. Docker Compose
 ```bash
-docker compose up --build -d
-# Visit http://localhost:8000/api/health/
+# Development (autoreload, bind mounts)
+docker compose --profile dev up --build
+
+# Production-like (Gunicorn + static assets)
+docker compose --profile prod up -d
 ```
 
-The Compose stack starts Django and PostgreSQL (with an optional Redis profile for future caching work).
+The Compose stack starts Django and PostgreSQL (with an optional Redis profile for future caching work). The production profile
+relies on the image entrypoint to apply migrations, collect static assets via WhiteNoise, and launch Gunicorn.
 
 ## API health
-A placeholder health check lives at `/api/health/` and returns `{"status": "ok"}`.
+`/api/health/` returns a JSON payload summarizing application status, database connectivity, and pending migrations. A healthy
+response looks like:
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2024-09-12T08:00:00+00:00",
+  "database": {"status": "ok"},
+  "migrations": {"status": "ok", "pending": []}
+}
+```
 
 ## Technology stack
 - **Django** 5.x with timezone-aware configuration (Asia/Tehran)
@@ -70,4 +84,6 @@ A placeholder health check lives at `/api/health/` and returns `{"status": "ok"}
 - [Local development guide](docs/LOCAL_DEV.md)
 - [Architecture overview](docs/ARCHITECTURE.md)
 - [Decision log](docs/DECISIONS.md)
+- [Deployment guide](docs/DEPLOYMENT.md)
+
 

@@ -1,4 +1,5 @@
 """Reusable permission helpers for role-based access control."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -18,6 +19,7 @@ STUDENT_GROUP = "Student"
 
 def user_in_groups(user: Any, group_names: Iterable[str]) -> bool:
     """Check whether the user belongs to any of the provided groups."""
+
     if not user or getattr(user, "is_anonymous", True):
         return False
 
@@ -49,6 +51,7 @@ class GroupPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:  # noqa: D401
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
+
         return user_in_groups(request.user, self.allowed_groups)
 
 
