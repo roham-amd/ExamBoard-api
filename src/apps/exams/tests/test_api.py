@@ -49,6 +49,7 @@ def instructor_user():  # noqa: ANN001
     return user
 
 
+
 @pytest.fixture
 def term():
     return Term.objects.create(
@@ -157,7 +158,6 @@ class TestExamAllocationAPI:
             end_at=dt.datetime(2024, 4, 15, 12, 0, tzinfo=dt.UTC),
             room=room,
         )
-
         payload = self._payload(
             exam,
             room,
@@ -191,7 +191,6 @@ class TestExamAllocationAPI:
             start_date=dt.date(2024, 3, 20),
             end_date=dt.date(2024, 3, 23),
         )
-
         payload = self._payload(
             exam,
             room,

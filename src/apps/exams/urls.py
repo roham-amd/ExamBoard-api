@@ -31,3 +31,4 @@ urlpatterns = [
         name="public-term-timetable",
     ),
 ]
+

@@ -152,3 +152,4 @@ class TimetableResponseSerializer(serializers.Serializer):
     label = serializers.CharField()
     scope = serializers.CharField()
     rooms = TimetableRoomSerializer(many=True)
+
