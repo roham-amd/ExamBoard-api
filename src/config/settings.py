@@ -109,9 +109,9 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 # Internationalization
-LANGUAGE_CODE = "fa-ir"
+LANGUAGE_CODE = "fa"
 LANGUAGES = [
-    ("fa", "Farsi"),
+    ("fa", "فارسی"),
 ]
 LOCALE_PATHS = [BASE_DIR / "locale"]
 
@@ -119,6 +119,10 @@ TIME_ZONE = "Asia/Tehran"
 USE_I18N = True
 USE_TZ = True
 
+DATE_FORMAT = "Y-m-d"
+DATETIME_FORMAT = "Y-m-d H:i"
+SHORT_DATE_FORMAT = "Y/n/j"
+SHORT_DATETIME_FORMAT = "Y/n/j H:i"
 
 # Static files
 STATIC_URL = "/static/"

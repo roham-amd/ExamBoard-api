@@ -12,6 +12,7 @@ dependencies = [
     "djangorestframework==3.15.2",
     "djangorestframework-simplejwt==5.3.1",
     "drf-spectacular==0.27.2",
+    "jdatetime==4.1.1",
     "gunicorn==22.0.0",
     "psycopg==3.2.1",
 ]

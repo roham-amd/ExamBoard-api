@@ -226,6 +226,7 @@ dependencies = [
     { name = "djangorestframework-simplejwt" },
     { name = "drf-spectacular" },
     { name = "gunicorn" },
+    { name = "jdatetime" },
     { name = "psycopg" },
 ]
 
@@ -249,6 +250,7 @@ requires-dist = [
     { name = "djangorestframework-simplejwt", specifier = "==5.3.1" },
     { name = "drf-spectacular", specifier = "==0.27.2" },
     { name = "gunicorn", specifier = "==22.0.0" },
+    { name = "jdatetime", specifier = "==4.1.1" },
     { name = "psycopg", specifier = "==3.2.1" },
 ]
 
@@ -318,6 +320,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/87/f9/c1eb8635a24e87ade2efce21e3ce8cd6b8630bb685ddc9cdaca1349b2eb5/isort-5.13.2.tar.gz", hash = "sha256:48fdfcb9face5d58a4f6dde2e72a1fb8dcaf8ab26f95ab49fab84c2ddefb0109", size = 175303, upload-time = "2023-12-13T20:37:26.124Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d1/b3/8def84f539e7d2289a02f0524b944b15d7c75dab7628bedf1c4f0992029c/isort-5.13.2-py3-none-any.whl", hash = "sha256:8ca5e72a8d85860d5a3fa69b8745237f2939afe12dbf656afbcb47fe72d947a6", size = 92310, upload-time = "2023-12-13T20:37:23.244Z" },
+]
+
+[[package]]
+name = "jdatetime"
+version = "4.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/68/e2/f3a974b25118345ad19c050c3bab37d01fcf94ba2be492b9e8b59392d067/jdatetime-4.1.1.tar.gz", hash = "sha256:1dd0ee210160c7bd30002803c443e6260ac602ea65b065652a1d567d3bfdca7a", size = 21804, upload-time = "2023-03-28T10:15:49.423Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/40/ee7691411bf07e963ab83309adf797f8dd9b454dbdd027545fd789ac8d97/jdatetime-4.1.1-py3-none-any.whl", hash = "sha256:8b56c702406eaf84d2ad673c41180488f8c77f156c3ac0630ce0caabaf6af5b8", size = 13592, upload-time = "2023-03-28T10:15:47.485Z" },
 ]
 
 [[package]]
