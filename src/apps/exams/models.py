@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import datetime as dt
+from collections.abc import Iterable
+
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import F, Q
+from django.utils import timezone
 
 from apps.common.models import TimeStampedModel, UserAuditModel
 
@@ -108,6 +113,109 @@ class ExamAllocation(TimeStampedModel):
 
     def __str__(self) -> str:  # pragma: no cover - simple display helper
         return f"{self.exam} @ {self.room}"
+
+    def clean(self) -> None:
+        super().clean()
+
+        if not all([self.exam_id, self.room_id, self.start_at, self.end_at]):
+            return
+
+        self._validate_term_window()
+        self._validate_blackouts()
+        self._validate_holidays()
+        self._validate_capacity()
+
+    def save(self, *args, **kwargs):  # type: ignore[override]
+        """Persist the allocation while guarding against race conditions."""
+
+        with transaction.atomic():
+            if self.room_id and self.start_at and self.end_at:
+                overlap_qs = (
+                    ExamAllocation.objects.select_for_update()
+                    .filter(room_id=self.room_id)
+                    .filter(start_at__lt=self.end_at, end_at__gt=self.start_at)
+                )
+                if self.pk:
+                    overlap_qs = overlap_qs.exclude(pk=self.pk)
+                self._locked_overlaps = list(overlap_qs)
+            try:
+                self.full_clean()
+                return super().save(*args, **kwargs)
+            finally:
+                if hasattr(self, "_locked_overlaps"):
+                    delattr(self, "_locked_overlaps")
+
+    # Validation helpers -------------------------------------------------
+
+    def _validate_term_window(self) -> None:
+        term = self.exam.term
+        local_start = timezone.localtime(self.start_at)
+        local_end = timezone.localtime(self.end_at)
+        inclusive_end = local_end - dt.timedelta(microseconds=1)
+
+        if local_start.date() < term.start_date or inclusive_end.date() > term.end_date:
+            raise ValidationError({"start_at": "زمان تخصیص باید داخل محدوده ترم باشد."})
+
+    def _validate_blackouts(self) -> None:
+        blackout_q = Q(room=self.room) | Q(room__isnull=True)
+        overlapping_blackouts = BlackoutWindow.objects.filter(blackout_q).filter(
+            start_at__lt=self.end_at, end_at__gt=self.start_at
+        )
+        if overlapping_blackouts.exists():
+            raise ValidationError(
+                {"start_at": "این بازه زمانی به علت محدودیت برنامه‌ریزی امکان‌پذیر نیست."}
+            )
+
+    def _validate_holidays(self) -> None:
+        local_start = timezone.localtime(self.start_at)
+        local_end = timezone.localtime(self.end_at)
+        inclusive_end = local_end - dt.timedelta(microseconds=1)
+        start_date = local_start.date()
+        end_date = inclusive_end.date()
+
+        holiday_exists = Holiday.objects.filter(
+            start_date__lte=end_date, end_date__gte=start_date
+        ).exists()
+        if holiday_exists:
+            raise ValidationError({"start_at": "این بازه در تقویم تعطیلات قرار دارد."})
+
+    def _validate_capacity(self) -> None:
+        room_capacity = self.room.capacity
+        overlapping_allocations = self._get_overlapping_allocations()
+
+        events: list[tuple[dt.datetime, int]] = []
+        for allocation in overlapping_allocations:
+            events.append((allocation.start_at, allocation.allocated_seats))
+            events.append((allocation.end_at, -allocation.allocated_seats))
+
+        events.append((self.start_at, self.allocated_seats))
+        events.append((self.end_at, -self.allocated_seats))
+
+        def sort_key(event: tuple[dt.datetime, int]) -> tuple[dt.datetime, int]:
+            timestamp, delta = event
+            # Apply departures before arrivals when timestamps match.
+            return (timestamp, 0 if delta < 0 else 1)
+
+        current_load = 0
+        for _timestamp, delta in sorted(events, key=sort_key):
+            current_load += delta
+            if current_load > room_capacity:
+                raise ValidationError(
+                    {
+                        "allocated_seats": "ظرفیت اتاق در این بازه زمانی تکمیل است.",
+                    }
+                )
+
+    def _get_overlapping_allocations(self) -> Iterable[ExamAllocation]:
+        if hasattr(self, "_locked_overlaps"):
+            return self._locked_overlaps
+
+        qs = ExamAllocation.objects.filter(room=self.room).filter(
+            start_at__lt=self.end_at, end_at__gt=self.start_at
+        )
+        if self.pk:
+            qs = qs.exclude(pk=self.pk)
+        return qs
 
 
 class BlackoutWindow(TimeStampedModel, UserAuditModel):

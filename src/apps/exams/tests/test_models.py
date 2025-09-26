@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
 from apps.exams.models import BlackoutWindow, Exam, ExamAllocation, Holiday, Room, Term
@@ -58,15 +59,14 @@ class TestExamModels:
             term=term,
         )
 
-        with pytest.raises(IntegrityError):
-            with transaction.atomic():
-                ExamAllocation.objects.create(
-                    exam=exam,
-                    room=room,
-                    start_at=dt.datetime(2024, 4, 1, 10, 0, tzinfo=dt.UTC),
-                    end_at=dt.datetime(2024, 4, 1, 9, 0, tzinfo=dt.UTC),
-                    allocated_seats=50,
-                )
+        with pytest.raises(ValidationError):
+            ExamAllocation(
+                exam=exam,
+                room=room,
+                start_at=dt.datetime(2024, 4, 1, 10, 0, tzinfo=dt.UTC),
+                end_at=dt.datetime(2024, 4, 1, 9, 0, tzinfo=dt.UTC),
+                allocated_seats=50,
+            ).full_clean()
 
     def test_blackout_window_optional_room(self, user):
         blackout = BlackoutWindow.objects.create(
